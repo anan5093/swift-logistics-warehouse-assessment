@@ -1,67 +1,152 @@
-Swift Logistics Warehouse Bottleneck Assessment
+# Swift Logistics Warehouse Bottleneck Assessment
 
-📌 Overview
+**Author:** Anand Raj  
+**Project Type:** Data Engineering & Analytics Pipeline  
+**Primary Focus:** Middle-mile logistics network performance evaluation  
 
-This collection has a data engineering and analytics process that is designed to evaluate middle-mile logistics network performance. By processing very nested JSON shipment tracking logs the process finds and marks "choked" courier warehouses that need immediate action.
+---
 
-Of depending on averages that can be easily wrong this solution uses 90th Percentile (P90) Dwell Times and Active Live Backlog volume to find real structural problems.
+## 📌 Overview
 
-🛠️ Tech Stack & Architecture
+This repository contains a complete data engineering and analytics pipeline designed to evaluate middle-mile logistics network performance.  
 
-SQL Engine: DuckDB. Chosen for its performance when querying local JSON files in memory and for handling complex array structures without needing a separate database server.
+By processing raw, heavily nested JSON shipment tracking logs, the pipeline systematically identifies and flags **"choked"** courier warehouses that require immediate operational intervention.
 
-Orchestration: Python 3
+### Why This Approach?
 
-Data Formatting: Pandas (for showing results on the terminal and for exporting to CSV)
+Traditional logistics monitoring often relies on average dwell times, which can be heavily skewed by outliers or small sample sizes.  
 
-📂 Repository Structure
+This solution instead leverages two more robust signals:
 
-warehouse_analysis.sql: The DuckDB SQL script. Handles enforcing the structure, cleaning strings parsing timestamps, using window functions (LEAD()). Deciding what to classify.
+- **90th Percentile (P90) Dwell Times** — captures structural inefficiency rather than being distorted by a few extreme cases.
+- **Active Live Backlog Volume** — measures real-time operational pressure (parcels currently stuck).
 
-run_pipeline.py: The Python script that connects to DuckDB runs the SQL query shows the analysis on the terminal and creates the CSV file.
+Together, these metrics isolate true structural bottlenecks that demand prioritization.
 
-Approach_Document.md: A detailed explanation of the math used, why the thresholds were chosen and what actions to take.
+---
 
-warehouse_priority_list.csv: The final result that has the list of warehouses that need attention (created when the script runs).
+## 🛠️ Tech Stack & Architecture
 
-.gitignore: Makes sure the big raw dataset (dataset.json) is not added to version control.
+| Component              | Technology     | Rationale                                                                 |
+|------------------------|----------------|---------------------------------------------------------------------------|
+| **SQL Engine**         | DuckDB         | Exceptional speed when querying local JSON files in-memory. Native support for unnesting complex nested arrays without requiring a dedicated database server. |
+| **Orchestration**      | Python 3       | Lightweight, flexible orchestration layer. Handles connection to DuckDB, execution, terminal rendering, and CSV export. |
+| **Data Formatting**    | Pandas         | Used for clean terminal output rendering and generation of the final CSV artifact. |
 
-🚀. Execution
+### High-Level Flow
 
-1. Prerequisites
+1. Raw nested JSON (`dataset.json`) is read by DuckDB.
+2. Complex array structures are unnested and cleaned.
+3. Timestamp parsing, dwell time calculations, and window functions (`LEAD()`) are applied.
+4. Classification logic flags warehouses based on backlog and P90 thresholds.
+5. Results are printed to the terminal and exported as `warehouse_priority_list.csv`.
 
-Make sure you have Python 3.8 or newer installed. You need to install the needed libraries:
+---
 
+## 📂 Repository Structure
+
+```
+.
+├── warehouse_analysis.sql      # Core DuckDB SQL script
+├── run_pipeline.py             # Python orchestrator
+├── Approach_Document.md        # Mathematical framework & recommendations
+├── warehouse_priority_list.csv # Generated output (priority list)
+├── dataset.json                # Raw input (gitignored due to size)
+├── .gitignore
+└── README.md                   # This file
+```
+
+### File Descriptions
+
+| File                         | Purpose |
+|-----------------------------|---------|
+| `warehouse_analysis.sql`    | Core analytical logic. Handles schema enforcement, string sanitization, timestamp parsing, window functions (`LEAD()`), dwell-time calculations, and final classification. |
+| `run_pipeline.py`           | Python execution script. Connects to an in-memory DuckDB instance, executes the SQL, formats terminal output via Pandas, and exports the final CSV. |
+| `Approach_Document.md`      | Detailed breakdown of the mathematical framework, threshold justifications, and operational recommendations. |
+| `warehouse_priority_list.csv` | Final generated artifact containing the prioritized list of flagged hubs. |
+| `.gitignore`                | Excludes the large raw dataset (`dataset.json`) from version control. |
+
+---
+
+## 🚀 Setup and Execution
+
+### 1. Prerequisites
+
+- Python **3.8+**
+- Required packages:
+
+```bash
 pip install duckdb pandas
+```
 
-2. Add the Dataset
+### 2. Add the Dataset
 
-Since the original dataset is large it is not included. Put the dataset.json file in the folder of this project before starting the process.
+The raw dataset is large and therefore excluded via `.gitignore`.
 
-3. Run the Pipeline
+Place the file `dataset.json` in the **root directory** of this project before running the pipeline.
 
-Start the process from your terminal:
+### 3. Run the Pipeline
 
+From the project root, execute:
+
+```bash
 python run_pipeline.py
+```
 
-4. Output
+### 4. Expected Output
 
-After running the script will:
+Upon successful execution the script will:
 
-Show a clean table on the terminal with the worst warehouses.
+1. Print a cleanly formatted summary table to the terminal showing the worst-offending hubs.
+2. Generate `warehouse_priority_list.csv` in the project root.
 
-Create a file called warehouse_priority_list.csv in the folder.
+---
 
-🧠 Core Methodology
+## 🧠 Core Methodology
 
-The classification process marks a warehouse as Prioritize for Clearing if any of these conditions are met compared to the evaluation date (2023-10-07 23:59:59):
+All classifications are performed relative to a fixed **evaluation anchor date**:
 
-Critical Backlog: Has 5 or more parcels stuck with no movement for than 48 hours.
+```
+2023-10-07 23:59:59
+```
 
-Inefficiency: The past 90th Percentile dwell time of the place is more than 48 hours.
+A warehouse is flagged as **Prioritize for Clearing** if it meets **any** of the following conditions:
 
-Severe SLA Breach: Has 2 or more parcels that have not moved for an average of, than 72 hours.
+| Condition                    | Threshold                                      | Interpretation |
+|-----------------------------|------------------------------------------------|----------------|
+| **Critical Backlog**        | ≥ 5 parcels stuck without movement for > 48 hours | Immediate operational pressure |
+| **Structural Inefficiency** | Historical P90 dwell time > 48 hours           | Systemic process or capacity problem |
+| **Severe SLA Breach**       | ≥ 2 parcels stationary for an average of > 72 hours | High-risk service level failures |
 
-All other places are marked as Ignore.
+Warehouses that do **not** meet any of the above criteria are tagged as **Ignore**.
 
-Author: Anand Raj
+### Design Philosophy
+
+- Prefer **percentile-based** metrics over means to reduce the impact of outliers.
+- Combine **historical structural signals** (P90) with **current live backlog** for a more complete picture.
+- Keep thresholds deliberately conservative so that only warehouses with clear, actionable problems are surfaced.
+
+---
+
+## 📊 Output Artifact
+
+The primary deliverable is:
+
+```
+warehouse_priority_list.csv
+```
+
+This file contains the prioritized list of warehouses that require operational attention, ranked according to the severity of the signals described above.
+
+---
+
+## 📝 Notes & Recommendations
+
+- Always verify that `dataset.json` is present and correctly named before running the pipeline.
+- The SQL script is designed to be self-contained and can be inspected independently of the Python orchestrator.
+- For production use, consider parameterizing the anchor date and thresholds so they can be adjusted without modifying the core SQL.
+
+---
+
+**Author:** Anand Raj  
+**Last Updated:** August 2026
